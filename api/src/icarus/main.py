@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from icarus.dependencies import close_driver, init_driver
 from icarus.middleware.cpf_masking import CPFMaskingMiddleware
-from icarus.routers import entity, graph, meta, search
+from icarus.routers import entity, graph, meta, patterns, search
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ app.include_router(meta.router)
 app.include_router(entity.router)
 app.include_router(search.router)
 app.include_router(graph.router)
+app.include_router(patterns.router)
 
 
 @app.get("/health")
