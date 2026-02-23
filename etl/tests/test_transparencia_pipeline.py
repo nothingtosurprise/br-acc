@@ -165,6 +165,33 @@ def test_transform_skips_empty_cnpj_contracts() -> None:
     assert len(pipeline.contracts) == 3
 
 
+def test_transform_skips_short_cnpj_contracts() -> None:
+    """Contracts with CNPJ shorter than 14 digits should be filtered out."""
+    import pandas as pd
+
+    pipeline = _make_pipeline()
+    _extract_from_fixtures(pipeline)
+
+    short_cnpj = pd.DataFrame([{
+        "cnpj_contratada": "11",
+        "razao_social": "Fantasma Curta Ltda",
+        "objeto": "Servico Invalido",
+        "valor": "10.000,00",
+        "orgao_contratante": "Orgao Teste",
+        "data_inicio": "2024-02-01",
+    }])
+    pipeline._raw_contratos = pd.concat(
+        [pipeline._raw_contratos, short_cnpj], ignore_index=True,
+    )
+
+    pipeline.transform()
+    # Short CNPJ row should be rejected — only original 3 remain
+    assert len(pipeline.contracts) == 3
+    # No CNPJ with fewer than 14 formatted chars
+    for c in pipeline.contracts:
+        assert len(c["cnpj"]) == 18  # XX.XXX.XXX/XXXX-XX
+
+
 def test_parse_brl_handles_formats() -> None:
     assert _parse_brl("1.500.000,00") == 1_500_000.00
     assert _parse_brl("3.200.000,50") == 3_200_000.50

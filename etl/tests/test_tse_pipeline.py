@@ -128,6 +128,8 @@ def test_transform_identifies_company_donors() -> None:
 
     assert len(company_donations) == 1
     assert company_donations[0]["donor_name"] == "EMPRESA ABC LTDA"
+    # Company donor CNPJ must be formatted (not raw digits) for cross-source MERGE
+    assert company_donations[0]["donor_doc"] == "12.345.678/0001-99"
     assert len(person_donations) == 2
 
 

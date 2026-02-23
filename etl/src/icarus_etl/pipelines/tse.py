@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from icarus_etl.loader import Neo4jBatchLoader
 from icarus_etl.transforms import (
     deduplicate_rows,
+    format_cnpj,
     format_cpf,
     normalize_name,
     strip_document,
@@ -108,7 +109,7 @@ class TSEPipeline(Pipeline):
             ano = int(row["ano"])
 
             is_company = len(donor_doc) == 14
-            donor_doc_fmt = donor_doc  # keep raw for CNPJ matching
+            donor_doc_fmt = format_cnpj(donor_doc)
             if not is_company:
                 donor_doc_fmt = format_cpf(donor_doc)
 

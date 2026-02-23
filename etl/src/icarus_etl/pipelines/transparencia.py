@@ -97,7 +97,7 @@ class TransparenciaPipeline(Pipeline):
 
             # Skip rows where CNPJ has no digits (produces malformed contract_ids)
             cnpj_digits = strip_document(raw_cnpj)
-            if not cnpj_digits:
+            if len(cnpj_digits) != 14:
                 continue
 
             cnpj = format_cnpj(raw_cnpj)
