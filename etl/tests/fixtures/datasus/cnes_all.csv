@@ -1,0 +1,5 @@
+codigo_cnes,numero_cnpj_entidade,nome_razao_social,nome_fantasia,codigo_tipo_unidade,descricao_esfera_administrativa,codigo_municipio,codigo_uf,estabelecimento_faz_atendimento_ambulatorial_sus,estabelecimento_possui_atendimento_hospitalar,descricao_natureza_juridica_estabelecimento
+0012345,11222333000181,Hospital Municipal de Altamira,HMA,05,Municipal,1500602,15,SIM,SIM,Administracao Publica Municipal
+0067890,44555666000199,Clinica Sao Jose Ltda,Clinica Sao Jose,04,Privada,3550308,35,NAO,NAO,Sociedade Empresaria Limitada
+,,Estabelecimento Sem Codigo,,02,Estadual,1100205,11,1,NAO,Administracao Publica Estadual
+0099999,,UBS Sem CNPJ,Posto de Saude,01,Municipal,2304400,23,1,NAO,Administracao Publica Municipal

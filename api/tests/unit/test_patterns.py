@@ -13,11 +13,11 @@ def test_all_patterns_have_metadata() -> None:
 def test_all_patterns_have_query_files() -> None:
     from icarus.services.neo4j_service import CypherLoader
 
-    for pattern_id, query_name in PATTERN_QUERIES.items():
+    for _pattern_id, query_name in PATTERN_QUERIES.items():
         try:
             CypherLoader.load(query_name)
         except FileNotFoundError:
-            pytest.fail(f"Missing .cypher file for pattern {pattern_id}: {query_name}.cypher")
+            pytest.fail(f"Missing .cypher file for pattern {query_name}.cypher")
         finally:
             CypherLoader.clear_cache()
 
@@ -48,6 +48,39 @@ async def test_invalid_pattern_returns_404(client: AsyncClient) -> None:
     response = await client.get("/api/v1/patterns/test-id/nonexistent_pattern")
     assert response.status_code == 404
     assert "Pattern not found" in response.json()["detail"]
+
+
+def test_patrimony_query_guards_divide_by_zero() -> None:
+    """pattern_patrimony.cypher must require patrimonio_declarado > 0 to avoid div-by-zero."""
+    from icarus.services.neo4j_service import CypherLoader
+
+    try:
+        cypher = CypherLoader.load("pattern_patrimony")
+    finally:
+        CypherLoader.clear_cache()
+    assert "patrimonio_declarado > 0" in cypher, (
+        "pattern_patrimony.cypher missing 'patrimonio_declarado > 0' guard — "
+        "ratio computation will divide by zero"
+    )
+
+
+def test_pattern_queries_use_parameter_binding() -> None:
+    """All pattern .cypher files must use $entity_id parameter binding, not string interpolation."""
+    from icarus.services.neo4j_service import CypherLoader
+    from icarus.services.pattern_service import PATTERN_QUERIES
+
+    for _pattern_id, query_name in PATTERN_QUERIES.items():
+        try:
+            cypher = CypherLoader.load(query_name)
+        finally:
+            CypherLoader.clear_cache()
+        assert "$entity_id" in cypher, (
+            f"{query_name}.cypher missing $entity_id parameter binding"
+        )
+        # No f-string or .format() injection patterns
+        assert "${" not in cypher, (
+            f"{query_name}.cypher uses string interpolation (unsafe)"
+        )
 
 
 def test_no_banned_words_in_pattern_metadata() -> None:

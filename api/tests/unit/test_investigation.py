@@ -620,3 +620,49 @@ async def test_remove_entity_no_auth(client: AsyncClient) -> None:
         "/api/v1/investigations/inv-uuid/entities/entity-1"
     )
     assert response.status_code == 401
+
+
+# --- Cypher integrity tests for investigation queries ---
+
+
+def test_investigation_update_coalesce_includes_all_entity_id_fields() -> None:
+    """investigation_update.cypher coalesce chain must include all entity ID fields."""
+    try:
+        cypher = CypherLoader.load("investigation_update")
+    finally:
+        CypherLoader.clear_cache()
+
+    required_fields = ["e.cpf", "e.cnpj", "e.contract_id", "e.sanction_id", "e.amendment_id"]
+    for field in required_fields:
+        assert field in cypher, (
+            f"investigation_update.cypher coalesce chain missing {field}"
+        )
+
+
+def test_investigation_add_entity_returns_entity_id() -> None:
+    """investigation_add_entity.cypher RETURN clause must include entity_id."""
+    try:
+        cypher = CypherLoader.load("investigation_add_entity")
+    finally:
+        CypherLoader.clear_cache()
+
+    # The RETURN clause should produce an entity_id column
+    assert "entity_id" in cypher, (
+        "investigation_add_entity.cypher does not return entity_id"
+    )
+    # Also check it uses the coalesce pattern for entity_id resolution
+    assert "coalesce(" in cypher.lower(), (
+        "investigation_add_entity.cypher does not use coalesce for entity_id"
+    )
+
+
+def test_investigation_remove_entity_returns_deleted_column() -> None:
+    """investigation_remove_entity.cypher must return a 'deleted' column."""
+    try:
+        cypher = CypherLoader.load("investigation_remove_entity")
+    finally:
+        CypherLoader.clear_cache()
+
+    assert "AS deleted" in cypher, (
+        "investigation_remove_entity.cypher does not return 'deleted' column"
+    )

@@ -1,0 +1,38 @@
+{
+  "gazettes": [
+    {
+      "date": "2024-01-15",
+      "territory_id": "3550308",
+      "territory_name": "Sao Paulo",
+      "edition": "123",
+      "is_extra_edition": false,
+      "url": "https://queridodiario.ok.org.br/sp/2024-01-15",
+      "excerpts": ["Contrato firmado com empresa CNPJ 11.222.333/0001-81 no valor de R$ 500.000"]
+    },
+    {
+      "date": "2024-02-20",
+      "territory_id": "3304557",
+      "territory_name": "Rio de Janeiro",
+      "edition": "456",
+      "is_extra_edition": true,
+      "url": "https://queridodiario.ok.org.br/rj/2024-02-20",
+      "excerpts": ["Homologacao de licitacao"]
+    },
+    {
+      "date": "",
+      "territory_id": "1100205",
+      "territory_name": "Porto Velho",
+      "edition": "1",
+      "is_extra_edition": false,
+      "url": "https://example.com/invalid"
+    },
+    {
+      "date": "2024-03-10",
+      "territory_id": "",
+      "territory_name": "Sem Territorio",
+      "edition": "2",
+      "is_extra_edition": false,
+      "url": "https://example.com/no-territory"
+    }
+  ]
+}
