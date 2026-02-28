@@ -10,6 +10,12 @@ This contract is mandatory for every new source before `shadow -> promote`.
 - `owner_agent`:
 - `primary_url`:
 - `access_mode` (`file|api|bigquery|web`):
+- `public_access_mode` (`open|open_with_rate_limit|registration|credentialed_public`):
+- `discovery_status` (`discovered|discovered_uningested|monitored|unreachable`):
+- `last_seen_url`:
+- `cadence_expected`:
+- `cadence_observed`:
+- `quality_status` (`healthy|stale|quality_fail|blocked_external|not_built|partial|loaded`):
 
 ## 2. Access and Legal
 - Credential required:
@@ -22,6 +28,7 @@ This contract is mandatory for every new source before `shadow -> promote`.
 - Downloader script: `etl/scripts/download_<source>.py`
 - Canonical output files:
 - Manifest file:
+- Manifest mandatory fields (`run_id`, `source_id`, `window_start`, `window_end`, `rows`, `error`, `checksum`, `retrieved_at_utc`):
 - Update cadence:
 - Expected row volume:
 - Partition/window strategy:

@@ -9,6 +9,26 @@ async def test_health_returns_ok(client: AsyncClient) -> None:
     response = await client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+
+
+@pytest.mark.anyio
+async def test_meta_health_has_security_headers(client: AsyncClient) -> None:
+    with patch(
+        "icarus.routers.meta.execute_query_single",
+        new_callable=AsyncMock,
+        return_value={"ok": 1},
+    ):
+        response = await client.get("/api/v1/meta/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"neo4j": "connected"}
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
 
 
 @pytest.mark.anyio
@@ -66,6 +86,10 @@ async def test_meta_sources(client: AsyncClient) -> None:
     assert "implementation_state" in first
     assert "load_state" in first
     assert "in_universe_v1" in first
+    assert "discovery_status" in first
+    assert "last_seen_url" in first
+    assert "public_access_mode" in first
+    assert "quality_status" in first
 
 
 @pytest.mark.anyio
@@ -174,9 +198,14 @@ async def test_meta_stats(client: AsyncClient) -> None:
     assert data["municipal_bid_count"] == 8_000_000
     assert data["municipal_contract_count"] == 6_000_000
     assert data["municipal_gazette_act_count"] == 4_000_000
+    assert data["source_document_count"] == 0
+    assert data["ingestion_run_count"] == 0
+    assert data["temporal_violation_count"] == 0
     assert data["data_sources"] == 108
     assert data["implemented_sources"] == 45
     assert data["loaded_sources"] >= 1
+    assert data["healthy_sources"] >= 1
     assert data["stale_sources"] >= 0
     assert data["blocked_external_sources"] >= 0
     assert data["quality_fail_sources"] >= 0
+    assert data["discovered_uningested_sources"] >= 0

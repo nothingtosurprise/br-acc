@@ -1,4 +1,5 @@
 import logging
+import os
 
 import click
 from neo4j import GraphDatabase
@@ -109,6 +110,7 @@ def cli() -> None:
 @click.option("--neo4j-uri", default="bolt://localhost:7687", help="Neo4j URI")
 @click.option("--neo4j-user", default="neo4j", help="Neo4j user")
 @click.option("--neo4j-password", required=True, help="Neo4j password")
+@click.option("--neo4j-database", default="neo4j", help="Neo4j database")
 @click.option("--data-dir", default="./data", help="Directory for downloaded data")
 @click.option("--limit", type=int, default=None, help="Limit rows processed")
 @click.option("--chunk-size", type=int, default=50_000, help="Chunk size for batch processing")
@@ -119,6 +121,7 @@ def run(
     neo4j_uri: str,
     neo4j_user: str,
     neo4j_password: str,
+    neo4j_database: str,
     data_dir: str,
     limit: int | None,
     chunk_size: int,
@@ -126,6 +129,7 @@ def run(
     start_phase: int,
 ) -> None:
     """Run an ETL pipeline."""
+    os.environ["NEO4J_DATABASE"] = neo4j_database
     driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
 
     if source not in PIPELINES:

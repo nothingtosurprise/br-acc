@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -81,21 +83,19 @@ def _fetch_window(
     date_start: str,
     date_end: str,
     modalidade: int,
+    *,
+    page_workers: int = 1,
+    request_delay_seconds: float = REQUEST_DELAY_SECONDS,
 ) -> list[dict]:
     """Fetch all pages for a single date window + modalidade combination."""
-    all_records: list[dict] = []
-    page = 1
-
-    while True:
-        data = None
+    def fetch_with_retry(page: int) -> dict | None:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                data = _fetch_page(client, date_start, date_end, modalidade, page)
-                break  # success
+                return _fetch_page(client, date_start, date_end, modalidade, page)
             except httpx.HTTPStatusError as e:
                 if e.response.status_code in (400, 404):
                     # No data or invalid range
-                    return all_records
+                    return None
                 if e.response.status_code == 429:
                     wait = RETRY_BACKOFF_SECONDS * attempt * 2
                     logger.warning(
@@ -118,7 +118,7 @@ def _fetch_window(
                     "Giving up on %s-%s mod=%d page=%d after %d attempts: %s",
                     date_start, date_end, modalidade, page, MAX_RETRIES, e,
                 )
-                return all_records
+                return None
             except httpx.HTTPError as e:
                 if attempt < MAX_RETRIES:
                     logger.warning(
@@ -133,25 +133,45 @@ def _fetch_window(
                     "Giving up on %s-%s mod=%d page=%d after %d attempts: %s",
                     date_start, date_end, modalidade, page, MAX_RETRIES, e,
                 )
-                return all_records
+                return None
+        return None
 
-        if data is None:
-            break
+    first = fetch_with_retry(1)
+    if first is None:
+        return []
 
-        items = data.get("data", [])
-        if not items or data.get("empty", True):
-            break
+    first_items = first.get("data", [])
+    if not first_items or first.get("empty", True):
+        return []
 
-        all_records.extend(items)
-        total_pages = data.get("totalPaginas", 1)
-        remaining = data.get("paginasRestantes", 0)
+    all_records: list[dict] = list(first_items)
+    total_pages = int(first.get("totalPaginas", 1) or 1)
+    if total_pages <= 1:
+        return all_records
 
-        if page >= total_pages or remaining <= 0:
-            break
+    remaining_pages = range(2, total_pages + 1)
+    workers = max(1, int(page_workers))
+    if workers == 1:
+        for page in remaining_pages:
+            data = fetch_with_retry(page)
+            if data is None:
+                continue
+            items = data.get("data", [])
+            if items and not data.get("empty", False):
+                all_records.extend(items)
+            if request_delay_seconds > 0:
+                time.sleep(request_delay_seconds)
+        return all_records
 
-        page += 1
-        time.sleep(REQUEST_DELAY_SECONDS)
-
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(fetch_with_retry, page): page for page in remaining_pages}
+        for future in as_completed(futures):
+            data = future.result()
+            if data is None:
+                continue
+            items = data.get("data", [])
+            if items and not data.get("empty", False):
+                all_records.extend(items)
     return all_records
 
 
@@ -236,6 +256,90 @@ def _save_checkpoint(checkpoint_file: Path, key: str) -> None:
         f.write(key + "\n")
 
 
+def _month_range(start: datetime, end: datetime) -> list[str]:
+    """Return YYYYMM keys from start month to end month inclusive."""
+    keys: list[str] = []
+    cursor = datetime(start.year, start.month, 1)
+    limit = datetime(end.year, end.month, 1)
+    while cursor <= limit:
+        keys.append(cursor.strftime("%Y%m"))
+        if cursor.month == 12:
+            cursor = datetime(cursor.year + 1, 1, 1)
+        else:
+            cursor = datetime(cursor.year, cursor.month + 1, 1)
+    return keys
+
+
+def _load_month_file(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"), strict=False)
+    except (json.JSONDecodeError, OSError):
+        return []
+    if isinstance(raw, dict) and "data" in raw and isinstance(raw["data"], list):
+        return [r for r in raw["data"] if isinstance(r, dict)]
+    if isinstance(raw, list):
+        return [r for r in raw if isinstance(r, dict)]
+    return []
+
+
+def _compute_missing_months(out_dir: Path, expected_months: list[str]) -> list[str]:
+    missing: list[str] = []
+    for mk in expected_months:
+        if not (out_dir / f"pncp_{mk}.json").exists():
+            missing.append(mk)
+    return missing
+
+
+def _write_manifest(
+    manifest_path: Path,
+    start_date: str,
+    end_date: str,
+    expected_months: list[str],
+    month_sources: dict[str, set[str]],
+    missing_months: list[str],
+) -> None:
+    month_entries: list[dict[str, object]] = []
+    totals = {"in_sync": 0, "empty": 0, "missing": 0}
+
+    for mk in expected_months:
+        rows = len(_load_month_file(manifest_path.parent / f"pncp_{mk}.json"))
+        if mk in missing_months:
+            status = "missing"
+        elif rows == 0:
+            status = "empty"
+        else:
+            status = "in_sync"
+        totals[status] += 1
+        month_entries.append({
+            "month": mk,
+            "rows": rows,
+            "source_windows": sorted(month_sources.get(mk, set())),
+            "status": status,
+        })
+
+    payload = {
+        "generated_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "range_start": start_date,
+        "range_end": end_date,
+        "expected_months": expected_months,
+        "missing_months": missing_months,
+        "summary": {
+            "months_total": len(expected_months),
+            "months_in_sync": totals["in_sync"],
+            "months_empty": totals["empty"],
+            "months_missing": totals["missing"],
+        },
+        "months": month_entries,
+    }
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    logger.info("Wrote PNCP manifest: %s", manifest_path)
+
+
 @click.command()
 @click.option(
     "--start-date",
@@ -262,6 +366,30 @@ def _save_checkpoint(checkpoint_file: Path, key: str) -> None:
     help="Skip already-checkpointed windows",
 )
 @click.option("--timeout", type=int, default=90, help="HTTP request timeout in seconds")
+@click.option(
+    "--strict-month-continuity/--no-strict-month-continuity",
+    default=False,
+    help="Fail if any month in range has no monthly PNCP file after run.",
+)
+@click.option(
+    "--request-delay",
+    type=float,
+    default=REQUEST_DELAY_SECONDS,
+    show_default=True,
+    help="Delay (seconds) between combo requests. Use 0 for max throughput.",
+)
+@click.option(
+    "--page-workers",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Parallel workers to fetch remaining pages inside each combo.",
+)
+@click.option(
+    "--manifest-path",
+    default=None,
+    help="Optional manifest JSON output path (default: <output-dir>/download_manifest.json).",
+)
 def main(
     start_date: str,
     end_date: str,
@@ -270,6 +398,10 @@ def main(
     window_days: int,
     skip_existing: bool,
     timeout: int,
+    strict_month_continuity: bool,
+    request_delay: float,
+    page_workers: int,
+    manifest_path: str | None,
 ) -> None:
     """Download PNCP procurement bid publications."""
     out = Path(output_dir)
@@ -282,10 +414,21 @@ def main(
     logger.info("=== PNCP Download ===")
     logger.info("Date range: %s to %s", start_date, end_date)
     logger.info("Modalidades: %s", mod_list)
+    logger.info("Page workers: %d", max(1, page_workers))
+    logger.info("Request delay: %.3fs", max(0.0, request_delay))
 
     windows = _date_windows(start, end, window_days)
     total_combos = len(windows) * len(mod_list)
+    expected_months = _month_range(start, end)
+    missing_before = _compute_missing_months(out, expected_months)
     logger.info("Date windows: %d, total combos: %d", len(windows), total_combos)
+    logger.info(
+        "Month continuity (pre-run): expected=%d missing=%d",
+        len(expected_months),
+        len(missing_before),
+    )
+    if missing_before:
+        logger.info("Missing months before run: %s", ",".join(missing_before))
 
     # Checkpoint file tracks completed (window, modalidade) combos
     checkpoint_file = out / ".checkpoint"
@@ -301,9 +444,10 @@ def main(
 
     total_records = 0
     combos_done = len(completed)
+    month_sources: dict[str, set[str]] = defaultdict(set)
 
     try:
-        for win_idx, (win_start, win_end) in enumerate(windows):
+        for win_start, win_end in windows:
             for mod in mod_list:
                 combo_key = f"{win_start}_{win_end}_{mod}"
 
@@ -314,7 +458,14 @@ def main(
                     "[%d/%d] Fetching %s-%s modalidade=%d...",
                     combos_done + 1, total_combos, win_start, win_end, mod,
                 )
-                records = _fetch_window(client, win_start, win_end, mod)
+                records = _fetch_window(
+                    client,
+                    win_start,
+                    win_end,
+                    mod,
+                    page_workers=max(1, page_workers),
+                    request_delay_seconds=max(0.0, request_delay),
+                )
 
                 if records:
                     # Group by publication month and flush immediately
@@ -322,6 +473,7 @@ def main(
                     for rec in records:
                         mk = _month_key_for_record(rec, win_start)
                         by_month.setdefault(mk, []).append(rec)
+                        month_sources[mk].add(combo_key)
 
                     for mk, recs in by_month.items():
                         count = _flush_to_disk(out, mk, recs)
@@ -337,16 +489,40 @@ def main(
                 completed.add(combo_key)
                 combos_done += 1
 
-                time.sleep(REQUEST_DELAY_SECONDS)
+                if request_delay > 0:
+                    time.sleep(request_delay)
     except KeyboardInterrupt:
         logger.info("Interrupted. Progress saved — rerun with --skip-existing to resume.")
     finally:
         client.close()
 
+    missing_after = _compute_missing_months(out, expected_months)
+    logger.info(
+        "Month continuity (post-run): expected=%d missing=%d",
+        len(expected_months),
+        len(missing_after),
+    )
+    if missing_after:
+        logger.warning("Missing months after run: %s", ",".join(missing_after))
+
+    manifest_output = Path(manifest_path) if manifest_path else out / "download_manifest.json"
+    _write_manifest(
+        manifest_output,
+        start_date=start_date,
+        end_date=end_date,
+        expected_months=expected_months,
+        month_sources=month_sources,
+        missing_months=missing_after,
+    )
+
     logger.info(
         "=== Done: %d new records fetched, %d/%d combos completed ===",
         total_records, combos_done, total_combos,
     )
+    if strict_month_continuity and missing_after:
+        raise click.ClickException(
+            f"Strict month continuity failed: {len(missing_after)} missing month(s)",
+        )
 
 
 if __name__ == "__main__":

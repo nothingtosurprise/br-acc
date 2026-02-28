@@ -83,6 +83,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uri", required=True, help="Neo4j bolt URI")
     parser.add_argument("--user", default="neo4j", help="Neo4j username")
+    parser.add_argument("--database", default="neo4j", help="Neo4j database name")
     parser.add_argument(
         "--password-env",
         default="NEO4J_PASSWORD",
@@ -98,7 +99,7 @@ def main() -> int:
     driver = GraphDatabase.driver(args.uri, auth=(args.user, password))
     failed = 0
     try:
-        with driver.session() as session:
+        with driver.session(database=args.database) as session:
             for gate in GATES:
                 value = int(session.run(gate.query).single()["value"])
                 ok = _passes(gate.operator, value, gate.expected)
@@ -122,4 +123,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

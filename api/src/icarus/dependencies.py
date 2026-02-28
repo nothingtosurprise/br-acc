@@ -41,7 +41,7 @@ async def get_driver(request: Request) -> AsyncDriver:
 async def get_session(
     driver: Annotated[AsyncDriver, Depends(get_driver)],
 ) -> AsyncGenerator[AsyncSession]:
-    async with driver.session() as session:
+    async with driver.session(database=settings.neo4j_database) as session:
         yield session
 
 

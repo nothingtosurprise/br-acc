@@ -12,6 +12,7 @@ from icarus.config import settings
 from icarus.dependencies import close_driver, init_driver
 from icarus.middleware.cpf_masking import CPFMaskingMiddleware
 from icarus.middleware.rate_limit import limiter
+from icarus.middleware.security_headers import SecurityHeadersMiddleware
 from icarus.routers import (
     auth,
     baseline,
@@ -59,6 +60,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware, app_env=settings.app_env)
 app.add_middleware(CPFMaskingMiddleware)
 
 app.include_router(meta.router)

@@ -26,6 +26,12 @@ REQUIRED_COLUMNS = {
     "pipeline_id",
     "owner_agent",
     "access_mode",
+    "public_access_mode",
+    "discovery_status",
+    "last_seen_url",
+    "cadence_expected",
+    "cadence_observed",
+    "quality_status",
     "notes",
 }
 
@@ -39,6 +45,21 @@ VALID_STATUS = {
 }
 VALID_IMPLEMENTATION = {"implemented", "not_implemented"}
 VALID_LOAD_STATE = {"loaded", "partial", "not_loaded"}
+VALID_DISCOVERY_STATUS = {
+    "discovered",
+    "discovered_uningested",
+    "monitored",
+    "unreachable",
+}
+VALID_QUALITY_STATUS = {
+    "loaded",
+    "healthy",
+    "partial",
+    "stale",
+    "blocked_external",
+    "quality_fail",
+    "not_built",
+}
 PIPELINE_ENTRY_RE = re.compile(r'^\s*"([a-z0-9_]+)":\s*[A-Za-z_][A-Za-z0-9_]*,\s*$')
 
 
@@ -119,6 +140,22 @@ def build_gate_results(
             if row["load_state"].strip() and row["load_state"].strip() not in VALID_LOAD_STATE
         }
     )
+    invalid_discovery_status = sorted(
+        {
+            str(row.get("discovery_status") or "").strip()
+            for row in rows
+            if str(row.get("discovery_status") or "").strip()
+            and str(row.get("discovery_status") or "").strip() not in VALID_DISCOVERY_STATUS
+        }
+    )
+    invalid_quality_status = sorted(
+        {
+            str(row.get("quality_status") or "").strip()
+            for row in rows
+            if str(row.get("quality_status") or "").strip()
+            and str(row.get("quality_status") or "").strip() not in VALID_QUALITY_STATUS
+        }
+    )
 
     universe_rows = [row for row in rows if parse_bool(row["in_universe_v1"])]
     implemented_rows = [
@@ -142,11 +179,19 @@ def build_gate_results(
         ),
         GateResult(
             name="registry_values_are_valid",
-            passed=not invalid_status and not invalid_implementation and not invalid_load_state,
+            passed=(
+                not invalid_status
+                and not invalid_implementation
+                and not invalid_load_state
+                and not invalid_discovery_status
+                and not invalid_quality_status
+            ),
             details=(
                 f"invalid_status={invalid_status}; "
                 f"invalid_implementation={invalid_implementation}; "
-                f"invalid_load_state={invalid_load_state}"
+                f"invalid_load_state={invalid_load_state}; "
+                f"invalid_discovery_status={invalid_discovery_status}; "
+                f"invalid_quality_status={invalid_quality_status}"
             ),
         ),
         GateResult(

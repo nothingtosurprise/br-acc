@@ -4,6 +4,8 @@ from typing import Any
 
 from neo4j import AsyncDriver, AsyncSession, Record
 
+from icarus.config import settings
+
 logger = logging.getLogger(__name__)
 
 QUERIES_DIR = Path(__file__).parent.parent / "queries"
@@ -78,7 +80,7 @@ async def ensure_schema(driver: AsyncDriver) -> None:
     """Run schema_init.cypher statements on startup. All use IF NOT EXISTS so idempotent."""
     raw = CypherLoader.load("schema_init")
     statements = [s.strip() for s in raw.split(";") if s.strip()]
-    async with driver.session() as session:
+    async with driver.session(database=settings.neo4j_database) as session:
         for stmt in statements:
             # Skip comment-only lines
             lines = [ln for ln in stmt.splitlines() if not ln.strip().startswith("//")]

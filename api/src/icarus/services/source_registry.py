@@ -20,6 +20,12 @@ class SourceRegistryEntry:
     pipeline_id: str
     owner_agent: str
     access_mode: str
+    public_access_mode: str
+    discovery_status: str
+    last_seen_url: str
+    cadence_expected: str
+    cadence_observed: str
+    quality_status: str
     notes: str
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -37,6 +43,12 @@ class SourceRegistryEntry:
             "pipeline_id": self.pipeline_id,
             "owner_agent": self.owner_agent,
             "access_mode": self.access_mode,
+            "public_access_mode": self.public_access_mode,
+            "discovery_status": self.discovery_status,
+            "last_seen_url": self.last_seen_url,
+            "cadence_expected": self.cadence_expected,
+            "cadence_observed": self.cadence_observed,
+            "quality_status": self.quality_status,
             "notes": self.notes,
         }
 
@@ -79,6 +91,20 @@ def load_source_registry() -> list[SourceRegistryEntry]:
                     pipeline_id=(row.get("pipeline_id") or "").strip(),
                     owner_agent=(row.get("owner_agent") or "").strip(),
                     access_mode=(row.get("access_mode") or "").strip(),
+                    public_access_mode=(
+                        (row.get("public_access_mode") or row.get("access_mode") or "").strip()
+                    ),
+                    discovery_status=(
+                        (row.get("discovery_status") or "discovered").strip()
+                    ),
+                    last_seen_url=(
+                        (row.get("last_seen_url") or row.get("primary_url") or "").strip()
+                    ),
+                    cadence_expected=(
+                        (row.get("cadence_expected") or row.get("frequency") or "").strip()
+                    ),
+                    cadence_observed=(row.get("cadence_observed") or "").strip(),
+                    quality_status=((row.get("quality_status") or row.get("status") or "").strip()),
                     notes=(row.get("notes") or "").strip(),
                 )
             )
@@ -96,12 +122,21 @@ def source_registry_summary(entries: list[SourceRegistryEntry]) -> dict[str, int
     stale = [entry for entry in universe_v1 if entry.status == "stale"]
     blocked = [entry for entry in universe_v1 if entry.status == "blocked_external"]
     quality_fail = [entry for entry in universe_v1 if entry.status == "quality_fail"]
+    healthy = [entry for entry in universe_v1 if entry.status == "loaded"]
+    discovered_uningested = [
+        entry
+        for entry in universe_v1
+        if entry.discovery_status == "discovered_uningested"
+        or entry.implementation_state == "not_implemented"
+    ]
 
     return {
         "universe_v1_sources": len(universe_v1),
         "implemented_sources": len(implemented),
         "loaded_sources": len(loaded),
+        "healthy_sources": len(healthy),
         "stale_sources": len(stale),
         "blocked_external_sources": len(blocked),
         "quality_fail_sources": len(quality_fail),
+        "discovered_uningested_sources": len(discovered_uningested),
     }

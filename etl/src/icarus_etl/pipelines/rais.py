@@ -185,7 +185,7 @@ class RaisPipeline(Pipeline):
         loader.load_nodes("LaborStats", self.labor_stats, key_field="stats_id")
 
         # Create index for efficient matching
-        with self.driver.session() as session:
+        with self.driver.session(database=self.neo4j_database) as session:
             session.run(
                 "CREATE INDEX labor_stats_cnae IF NOT EXISTS "
                 "FOR (l:LaborStats) ON (l.cnae_subclass)"

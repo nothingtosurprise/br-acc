@@ -110,6 +110,15 @@ CALL {
   MATCH (j:JudicialCase) RETURN count(j) AS judicial_case_count
 }
 CALL {
+  MATCH (sd:SourceDocument) RETURN count(sd) AS source_document_count
+}
+CALL {
+  MATCH (ir:IngestionRun) RETURN count(ir) AS ingestion_run_count
+}
+CALL {
+  MATCH (tv:TemporalViolation) RETURN count(tv) AS temporal_violation_count
+}
+CALL {
   MATCH (c:CPI) RETURN count(c) AS cpi_count
 }
 CALL {
@@ -142,7 +151,9 @@ RETURN total_nodes, total_relationships,
        declared_asset_count, party_membership_count,
        barred_ngo_count, bcb_penalty_count,
        labor_movement_count, legal_case_count,
-       judicial_case_count, cpi_count,
+       judicial_case_count,
+       source_document_count, ingestion_run_count, temporal_violation_count,
+       cpi_count,
        inquiry_requirement_count, inquiry_session_count,
        municipal_bid_count, municipal_contract_count,
        municipal_gazette_act_count

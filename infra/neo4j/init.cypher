@@ -140,6 +140,15 @@ CREATE CONSTRAINT municipal_gazette_act_id_unique IF NOT EXISTS
 CREATE CONSTRAINT judicial_case_id_unique IF NOT EXISTS
   FOR (j:JudicialCase) REQUIRE j.judicial_case_id IS UNIQUE;
 
+CREATE CONSTRAINT source_document_id_unique IF NOT EXISTS
+  FOR (s:SourceDocument) REQUIRE s.doc_id IS UNIQUE;
+
+CREATE CONSTRAINT ingestion_run_id_unique IF NOT EXISTS
+  FOR (r:IngestionRun) REQUIRE r.run_id IS UNIQUE;
+
+CREATE CONSTRAINT temporal_violation_id_unique IF NOT EXISTS
+  FOR (t:TemporalViolation) REQUIRE t.violation_id IS UNIQUE;
+
 // ── Indexes ─────────────────────────────────────────────
 CREATE INDEX person_name IF NOT EXISTS
   FOR (p:Person) ON (p.name);
@@ -319,6 +328,30 @@ CREATE INDEX municipal_gazette_date IF NOT EXISTS
 CREATE INDEX judicial_case_number IF NOT EXISTS
   FOR (j:JudicialCase) ON (j.case_number);
 
+CREATE INDEX source_document_source_id IF NOT EXISTS
+  FOR (s:SourceDocument) ON (s.source_id);
+
+CREATE INDEX source_document_published_at IF NOT EXISTS
+  FOR (s:SourceDocument) ON (s.published_at);
+
+CREATE INDEX source_document_retrieved_at IF NOT EXISTS
+  FOR (s:SourceDocument) ON (s.retrieved_at);
+
+CREATE INDEX ingestion_run_source_id IF NOT EXISTS
+  FOR (r:IngestionRun) ON (r.source_id);
+
+CREATE INDEX ingestion_run_status IF NOT EXISTS
+  FOR (r:IngestionRun) ON (r.status);
+
+CREATE INDEX ingestion_run_started_at IF NOT EXISTS
+  FOR (r:IngestionRun) ON (r.started_at);
+
+CREATE INDEX temporal_violation_source_id IF NOT EXISTS
+  FOR (t:TemporalViolation) ON (t.source_id);
+
+CREATE INDEX temporal_violation_event_date IF NOT EXISTS
+  FOR (t:TemporalViolation) ON (t.event_date);
+
 // ── PEPRecord Indexes ─────────────────────────────────────
 CREATE INDEX pep_record_name IF NOT EXISTS
   FOR (p:PEPRecord) ON (p.name);
@@ -438,8 +471,8 @@ CREATE INDEX bcb_penalty_date IF NOT EXISTS
 
 // ── Fulltext Search Index ───────────────────────────────
 CREATE FULLTEXT INDEX entity_search IF NOT EXISTS
-  FOR (n:Person|Partner|Company|Health|Education|Contract|Amendment|Convenio|Embargo|PublicOffice|OffshoreEntity|OffshoreOfficer|GlobalPEP|CVMProceeding|Expense|PEPRecord|Expulsion|LeniencyAgreement|GovCardExpense|GovTravel|TaxWaiver|LegalCase|DeclaredAsset|InternationalSanction|Bid|Fund|DOUAct|MunicipalFinance|PartyMembership|BarredNGO|BCBPenalty|LaborMovement|CPI|Inquiry|InquiryRequirement|InquirySession|MunicipalBid|MunicipalContract|MunicipalGazetteAct|JudicialCase)
-  ON EACH [n.name, n.razao_social, n.cpf, n.cnpj, n.doc_partial, n.doc_raw, n.cnes_code, n.object, n.contracting_org, n.convenente, n.infraction, n.org, n.function, n.jurisdiction, n.penalty_type, n.description, n.institution_name, n.subject, n.text, n.topic, n.case_number];
+  FOR (n:Person|Partner|Company|Health|Education|Contract|Amendment|Convenio|Embargo|PublicOffice|OffshoreEntity|OffshoreOfficer|GlobalPEP|CVMProceeding|Expense|PEPRecord|Expulsion|LeniencyAgreement|GovCardExpense|GovTravel|TaxWaiver|LegalCase|DeclaredAsset|InternationalSanction|Bid|Fund|DOUAct|MunicipalFinance|PartyMembership|BarredNGO|BCBPenalty|LaborMovement|CPI|Inquiry|InquiryRequirement|InquirySession|MunicipalBid|MunicipalContract|MunicipalGazetteAct|JudicialCase|SourceDocument)
+  ON EACH [n.name, n.razao_social, n.cpf, n.cnpj, n.doc_partial, n.doc_raw, n.cnes_code, n.object, n.contracting_org, n.convenente, n.infraction, n.org, n.function, n.jurisdiction, n.penalty_type, n.description, n.institution_name, n.subject, n.text, n.topic, n.case_number, n.url];
 
 // ── User Constraints ────────────────────────────────────
 CREATE CONSTRAINT user_email_unique IF NOT EXISTS

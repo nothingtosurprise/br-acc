@@ -6,6 +6,10 @@ MATCH (b:Bid)
 WHERE b.source = 'pncp' AND b.date =~ '\\d{4}-\\d{2}-\\d{2}'
 RETURN max(date(b.date)) AS pncp_max_date;
 
+MATCH (b:Bid)
+WHERE b.source = 'pncp' AND b.date >= '2025-01-01' AND b.date < '2026-01-01'
+RETURN count(b) AS bid_2025_count;
+
 MATCH (c:Contract)
 WHERE c.source = 'comprasnet' AND c.date =~ '\\d{4}-\\d{2}-\\d{2}'
 RETURN max(date(c.date)) AS comprasnet_max_date;
@@ -24,6 +28,41 @@ RETURN count(r) AS inquiry_requirement_count;
 
 MATCH (:Inquiry)-[rel:TEM_REQUERIMENTO]->(:InquiryRequirement)
 RETURN count(rel) AS inquiry_requirement_rel_count;
+
+MATCH (i:Inquiry {source: 'senado_cpis'})
+WHERE i.inquiry_id = 'senado-cpmi-inss-2026'
+RETURN count(i) AS senado_fallback_rows_count;
+
+MATCH (i:Inquiry {source: 'senado_cpis'})
+RETURN count(i) AS senado_inquiry_count;
+
+RETURN 3 AS senado_history_expected_count;
+
+MATCH (i:Inquiry)
+WHERE i.source = 'senado_cpis'
+  AND i.source_system = 'senado_archive'
+RETURN count(i) AS senado_history_loaded_count;
+
+MATCH (s:InquirySession)
+WHERE s.source = 'senado_cpis'
+RETURN count(s) AS senado_sessions_count;
+
+MATCH (i:Inquiry {source: 'senado_cpis'})-[r:TEM_REQUERIMENTO|REALIZOU_SESSAO]->()
+WHERE r.temporal_status = 'invalid'
+RETURN count(r) AS senado_temporal_invalid_edges_count;
+
+MATCH (i:Inquiry {source: 'senado_cpis'})-[r:TEM_REQUERIMENTO|REALIZOU_SESSAO]->()
+WHERE r.temporal_status = 'unknown'
+RETURN count(r) AS senado_temporal_unknown_edges_count;
+
+MATCH (i:Inquiry {source: 'camara_inquiries'})
+RETURN count(i) AS camara_inquiry_count;
+
+MATCH (r:InquiryRequirement {source: 'camara_inquiries'})
+RETURN count(r) AS camara_requirements_count;
+
+MATCH (s:InquirySession {source: 'camara_inquiries'})
+RETURN count(s) AS camara_sessions_count;
 
 // --- Date sanity ---
 MATCH (c:Contract)

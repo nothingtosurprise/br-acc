@@ -75,6 +75,9 @@ async def database_stats(
         "labor_movement_count": record["labor_movement_count"] if record else 0,
         "legal_case_count": record["legal_case_count"] if record else 0,
         "judicial_case_count": record["judicial_case_count"] if record else 0,
+        "source_document_count": record.get("source_document_count", 0) if record else 0,
+        "ingestion_run_count": record.get("ingestion_run_count", 0) if record else 0,
+        "temporal_violation_count": record.get("temporal_violation_count", 0) if record else 0,
         "cpi_count": record["cpi_count"] if record else 0,
         "inquiry_requirement_count": record["inquiry_requirement_count"] if record else 0,
         "inquiry_session_count": record["inquiry_session_count"] if record else 0,
@@ -84,9 +87,11 @@ async def database_stats(
         "data_sources": source_summary["universe_v1_sources"],
         "implemented_sources": source_summary["implemented_sources"],
         "loaded_sources": source_summary["loaded_sources"],
+        "healthy_sources": source_summary["healthy_sources"],
         "stale_sources": source_summary["stale_sources"],
         "blocked_external_sources": source_summary["blocked_external_sources"],
         "quality_fail_sources": source_summary["quality_fail_sources"],
+        "discovered_uningested_sources": source_summary["discovered_uningested_sources"],
     }
 
     _stats_cache = result

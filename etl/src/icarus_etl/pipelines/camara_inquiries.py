@@ -147,6 +147,8 @@ class CamaraInquiriesPipeline(Pipeline):
             status = self._get(row, "status", "situacao")
             subject = self._get(row, "subject", "objeto")
             source_url = self._get(row, "source_url", "url")
+            source_system = self._get(row, "source_system")
+            extraction_method = self._get(row, "extraction_method")
             date_start = parse_date(self._get(row, "date_start", "data_inicio"))
             date_end = parse_date(self._get(row, "date_end", "data_fim"))
 
@@ -162,6 +164,8 @@ class CamaraInquiriesPipeline(Pipeline):
                 "date_end": date_end,
                 "source_url": source_url,
                 "source": "camara_inquiries",
+                "source_system": source_system,
+                "extraction_method": extraction_method,
             })
 
         self.inquiries = deduplicate_rows(rows, ["inquiry_id"])
@@ -186,6 +190,8 @@ class CamaraInquiriesPipeline(Pipeline):
             text = self._get(row, "text", "texto", "ementa")
             status = self._get(row, "status", "situacao")
             source_url = self._get(row, "source_url", "url")
+            source_system = self._get(row, "source_system")
+            extraction_method = self._get(row, "extraction_method")
             date = parse_date(self._get(row, "date", "data"))
 
             if not requirement_id:
@@ -199,6 +205,8 @@ class CamaraInquiriesPipeline(Pipeline):
                 "status": status,
                 "source_url": source_url,
                 "source": "camara_inquiries",
+                "source_system": source_system,
+                "extraction_method": extraction_method,
             })
 
             inquiry_rels.append({"source_key": inquiry_id, "target_key": requirement_id})
@@ -262,6 +270,8 @@ class CamaraInquiriesPipeline(Pipeline):
             date = parse_date(self._get(row, "date", "data"))
             topic = self._get(row, "topic", "assunto")
             source_url = self._get(row, "source_url", "url")
+            source_system = self._get(row, "source_system")
+            extraction_method = self._get(row, "extraction_method")
 
             if not session_id:
                 session_id = _stable_id(inquiry_id, date, topic[:200])
@@ -272,6 +282,8 @@ class CamaraInquiriesPipeline(Pipeline):
                 "topic": topic,
                 "source_url": source_url,
                 "source": "camara_inquiries",
+                "source_system": source_system,
+                "extraction_method": extraction_method,
             })
             rels.append({"source_key": inquiry_id, "target_key": session_id})
 

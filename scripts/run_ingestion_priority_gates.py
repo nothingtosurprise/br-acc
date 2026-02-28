@@ -29,6 +29,16 @@ class DateFreshnessGate:
 
 NUMERIC_GATES: list[NumericGate] = [
     NumericGate(
+        name="bid_2025_count",
+        query=(
+            "MATCH (b:Bid) "
+            "WHERE b.source = 'pncp' AND b.date >= '2025-01-01' AND b.date < '2026-01-01' "
+            "RETURN count(b) AS value"
+        ),
+        operator="gt",
+        expected=0,
+    ),
+    NumericGate(
         name="inquiry_count",
         query="MATCH (i:Inquiry) RETURN count(i) AS value",
         operator="gt",
@@ -59,6 +69,94 @@ NUMERIC_GATES: list[NumericGate] = [
         ),
         operator="gt",
         expected=0,
+    ),
+    NumericGate(
+        name="senado_fallback_rows_count",
+        query=(
+            "MATCH (i:Inquiry) "
+            "WHERE i.source = 'senado_cpis' "
+            "  AND i.inquiry_id = 'senado-cpmi-inss-2026' "
+            "RETURN count(i) AS value"
+        ),
+        operator="eq",
+        expected=0,
+    ),
+    NumericGate(
+        name="senado_inquiry_count",
+        query="MATCH (i:Inquiry {source: 'senado_cpis'}) RETURN count(i) AS value",
+        operator="gt",
+        expected=1,
+    ),
+    NumericGate(
+        name="senado_history_expected_count",
+        query="RETURN 3 AS value",
+        operator="eq",
+        expected=3,
+    ),
+    NumericGate(
+        name="senado_history_loaded_count",
+        query=(
+            "MATCH (i:Inquiry) "
+            "WHERE i.source = 'senado_cpis' "
+            "  AND i.source_system = 'senado_archive' "
+            "RETURN count(i) AS value"
+        ),
+        operator="gt",
+        expected=0,
+    ),
+    NumericGate(
+        name="senado_sessions_count",
+        query=(
+            "MATCH (s:InquirySession) "
+            "WHERE s.source = 'senado_cpis' "
+            "RETURN count(s) AS value"
+        ),
+        operator="gt",
+        expected=0,
+    ),
+    NumericGate(
+        name="senado_temporal_invalid_edges_count",
+        query=(
+            "MATCH (i:Inquiry {source: 'senado_cpis'})-[r:TEM_REQUERIMENTO|REALIZOU_SESSAO]->() "
+            "WHERE r.temporal_status = 'invalid' "
+            "RETURN count(r) AS value"
+        ),
+        operator="eq",
+        expected=0,
+    ),
+    NumericGate(
+        name="senado_temporal_unknown_edges_count",
+        query=(
+            "MATCH (i:Inquiry {source: 'senado_cpis'})-[r:TEM_REQUERIMENTO|REALIZOU_SESSAO]->() "
+            "WHERE r.temporal_status = 'unknown' "
+            "RETURN count(r) AS value"
+        ),
+        operator="lte",
+        expected=5000,
+    ),
+    NumericGate(
+        name="camara_inquiry_count",
+        query="MATCH (i:Inquiry {source: 'camara_inquiries'}) RETURN count(i) AS value",
+        operator="gte",
+        expected=151,
+    ),
+    NumericGate(
+        name="camara_requirements_count",
+        query=(
+            "MATCH (r:InquiryRequirement {source: 'camara_inquiries'}) "
+            "RETURN count(r) AS value"
+        ),
+        operator="gte",
+        expected=1000,
+    ),
+    NumericGate(
+        name="camara_sessions_count",
+        query=(
+            "MATCH (s:InquirySession {source: 'camara_inquiries'}) "
+            "RETURN count(s) AS value"
+        ),
+        operator="gte",
+        expected=2000,
     ),
     NumericGate(
         name="absurd_future_contract_dates",
@@ -149,12 +247,24 @@ GAZETTE_MENTION_COUNT_QUERY = (
     "RETURN count(r) AS value"
 )
 
+PNCP_MONTHS_QUERY = (
+    "MATCH (b:Bid) "
+    "WHERE b.source = 'pncp' AND b.date =~ '\\d{4}-\\d{2}-\\d{2}' "
+    "RETURN collect(DISTINCT substring(b.date, 0, 7)) AS months"
+)
+
 
 def _passes(operator: str, value: int, expected: int) -> bool:
     if operator == "eq":
         return value == expected
     if operator == "gt":
         return value > expected
+    if operator == "gte":
+        return value >= expected
+    if operator == "lt":
+        return value < expected
+    if operator == "lte":
+        return value <= expected
     raise ValueError(f"Unsupported operator: {operator}")
 
 
@@ -167,10 +277,25 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
 
 
+def _month_range(start_ym: str, end_date: date) -> list[str]:
+    start_year, start_month = map(int, start_ym.split("-"))
+    current_year, current_month = start_year, start_month
+    out: list[str] = []
+    while (current_year, current_month) <= (end_date.year, end_date.month):
+        out.append(f"{current_year:04d}-{current_month:02d}")
+        if current_month == 12:
+            current_year += 1
+            current_month = 1
+        else:
+            current_month += 1
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uri", required=True, help="Neo4j bolt URI")
     parser.add_argument("--user", default="neo4j", help="Neo4j user")
+    parser.add_argument("--database", default="neo4j", help="Neo4j database name")
     parser.add_argument(
         "--password-env",
         default="NEO4J_PASSWORD",
@@ -197,13 +322,20 @@ def main() -> int:
     failed = 0
 
     try:
-        with driver.session() as session:
+        with driver.session(database=args.database) as session:
             for gate in NUMERIC_GATES:
                 value = int(session.run(gate.query).single()["value"])
                 ok = _passes(gate.operator, value, gate.expected)
-                expected_desc = (
-                    f"== {gate.expected}" if gate.operator == "eq" else f"> {gate.expected}"
-                )
+                if gate.operator == "eq":
+                    expected_desc = f"== {gate.expected}"
+                elif gate.operator == "gte":
+                    expected_desc = f">= {gate.expected}"
+                elif gate.operator == "lt":
+                    expected_desc = f"< {gate.expected}"
+                elif gate.operator == "lte":
+                    expected_desc = f"<= {gate.expected}"
+                else:
+                    expected_desc = f"> {gate.expected}"
                 print(
                     f"[{'PASS' if ok else 'FAIL'}] {gate.name}: "
                     f"value={value} expected {expected_desc}",
@@ -228,6 +360,22 @@ def main() -> int:
                 )
                 if not ok:
                     failed += 1
+
+            pncp_months_raw = session.run(PNCP_MONTHS_QUERY).single()["months"]
+            actual_months = set(pncp_months_raw or [])
+            expected_months = _month_range("2021-08", ref_date)
+            missing_months = [m for m in expected_months if m not in actual_months]
+            pncp_month_ok = len(missing_months) == 0
+            suffix = ""
+            if missing_months:
+                preview = ",".join(missing_months[:12])
+                suffix = f" missing_sample={preview}"
+            print(
+                f"[{'PASS' if pncp_month_ok else 'FAIL'}] pncp_missing_months_count: "
+                f"value={len(missing_months)} expected == 0{suffix}",
+            )
+            if not pncp_month_ok:
+                failed += 1
 
             ratio_row = session.run(GAZETTE_TEXT_RATIO_QUERY).single()
             total_acts = int(ratio_row["total"] or 0)

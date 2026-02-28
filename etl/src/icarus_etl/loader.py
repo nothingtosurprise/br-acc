@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -16,13 +17,19 @@ _MAX_RETRIES = 5
 class Neo4jBatchLoader:
     """Bulk loader using UNWIND for efficient Neo4j writes."""
 
-    def __init__(self, driver: Driver, batch_size: int = 10_000) -> None:
+    def __init__(
+        self,
+        driver: Driver,
+        batch_size: int = 10_000,
+        neo4j_database: str | None = None,
+    ) -> None:
         self.driver = driver
         self.batch_size = batch_size
+        self.neo4j_database = neo4j_database or os.getenv("NEO4J_DATABASE", "neo4j")
         self._total_written = 0
 
     def _run_batch_once(self, query: str, batch: list[dict[str, Any]]) -> None:
-        with self.driver.session() as session:
+        with self.driver.session(database=self.neo4j_database) as session:
             session.run(query, {"rows": batch})
 
     def _run_batches(self, query: str, rows: list[dict[str, Any]]) -> int:

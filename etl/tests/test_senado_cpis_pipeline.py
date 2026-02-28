@@ -131,6 +131,75 @@ class TestSenadoCpisTransform:
         senator_names = [r["senator_name"] for r in p.senator_rels]
         assert "" not in senator_names
 
+    def test_temporal_status_for_requirements_and_sessions(self) -> None:
+        p = SenadoCpisPipeline(driver=MagicMock())
+        p._raw_inquiries = pd.DataFrame([
+            {
+                "inquiry_id": "inq-1",
+                "inquiry_code": "RSF 1/2000",
+                "name": "CPI Teste",
+                "kind": "CPI",
+                "house": "senado",
+                "date_start": "2000-01-01",
+                "date_end": "2000-12-31",
+                "source_system": "senado_archive",
+            }
+        ])
+        p._raw_requirements = pd.DataFrame([
+            {
+                "requirement_id": "req-valid",
+                "inquiry_id": "inq-1",
+                "date": "2000-03-10",
+                "text": "Req valida",
+                "author_name": "NOME QUALQUER",
+                "author_cpf": "",
+            },
+            {
+                "requirement_id": "req-invalid",
+                "inquiry_id": "inq-1",
+                "date": "1999-12-10",
+                "text": "Req invalida",
+                "author_name": "NOME QUALQUER",
+                "author_cpf": "",
+            },
+            {
+                "requirement_id": "req-unknown",
+                "inquiry_id": "inq-1",
+                "date": "",
+                "text": "Req sem data",
+                "author_name": "NOME QUALQUER",
+                "author_cpf": "",
+            },
+        ])
+        p._raw_sessions = pd.DataFrame([
+            {
+                "session_id": "sess-valid",
+                "inquiry_id": "inq-1",
+                "date": "2000-07-01",
+                "topic": "Sessao valida",
+            },
+            {
+                "session_id": "sess-invalid",
+                "inquiry_id": "inq-1",
+                "date": "2001-01-01",
+                "topic": "Sessao invalida",
+            },
+        ])
+        p._raw_members = pd.DataFrame()
+
+        p.transform()
+
+        req_status = {r["target_key"]: r["temporal_status"] for r in p.inquiry_requirement_rels}
+        assert req_status["req-valid"] == "valid"
+        assert req_status["req-invalid"] == "invalid"
+        assert req_status["req-unknown"] == "unknown"
+
+        sess_status = {r["target_key"]: r["temporal_status"] for r in p.inquiry_session_rels}
+        assert sess_status["sess-valid"] == "valid"
+        assert sess_status["sess-invalid"] == "invalid"
+
+        assert p.requirement_author_name_rels == []
+
 
 class TestSenadoCpisLoad:
     def test_load_creates_cpi_nodes(self) -> None:

@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 _CNPJ_FMT_RE = re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}")
 _CNPJ_RAW_RE = re.compile(r"\d{14}")
+_TEMPORAL_RULE = (
+    "event_date>=inquiry.date_start and "
+    "(inquiry.date_end is null or event_date<=inquiry.date_end)"
+)
 
 
 def _stable_id(*parts: str, length: int = 20) -> str:
@@ -68,6 +72,16 @@ def _extract_cnpjs(text: str) -> list[str]:
     return out
 
 
+def _temporal_status(event_date: str, start_date: str, end_date: str) -> str:
+    if not event_date or not start_date:
+        return "unknown"
+    if event_date < start_date:
+        return "invalid"
+    if end_date and event_date > end_date:
+        return "invalid"
+    return "valid"
+
+
 class SenadoCpisPipeline(Pipeline):
     """ETL pipeline for Senate inquiries (CPI/CPMI), v2.
 
@@ -102,6 +116,7 @@ class SenadoCpisPipeline(Pipeline):
         self._raw_requirements: pd.DataFrame = pd.DataFrame()
         self._raw_sessions: pd.DataFrame = pd.DataFrame()
         self._raw_members: pd.DataFrame = pd.DataFrame()
+        self._raw_history_sources: pd.DataFrame = pd.DataFrame()
 
         # Backward-compatible outputs
         self.cpis: list[dict[str, Any]] = []
@@ -117,6 +132,9 @@ class SenadoCpisPipeline(Pipeline):
         self.requirement_author_cpf_rels: list[dict[str, Any]] = []
         self.requirement_author_name_rels: list[dict[str, Any]] = []
         self.requirement_company_mentions: list[dict[str, Any]] = []
+        self.temporal_violations: list[dict[str, Any]] = []
+        self.source_documents: list[dict[str, Any]] = []
+        self._inquiry_date_lookup: dict[str, tuple[str, str]] = {}
 
         self.run_id = f"{self.name}_{pd.Timestamp.utcnow().strftime('%Y%m%d%H%M%S')}"
 
@@ -149,6 +167,7 @@ class SenadoCpisPipeline(Pipeline):
         self._raw_requirements = self._read_csv_optional(src_dir / "requirements.csv")
         self._raw_sessions = self._read_csv_optional(src_dir / "sessions.csv")
         self._raw_members = self._read_csv_optional(src_dir / "members.csv")
+        self._raw_history_sources = self._read_csv_optional(src_dir / "history_sources.csv")
 
         if self.limit:
             self._raw_inquiries = self._raw_inquiries.head(self.limit)
@@ -174,6 +193,7 @@ class SenadoCpisPipeline(Pipeline):
         self._transform_members()
         self._transform_requirements()
         self._transform_sessions()
+        self._transform_source_documents()
 
     def _get_inquiry_value(self, row: pd.Series, *keys: str) -> str:
         for key in keys:
@@ -197,6 +217,10 @@ class SenadoCpisPipeline(Pipeline):
             status = self._get_inquiry_value(row, "status", "situacao")
             subject = self._get_inquiry_value(row, "subject", "objeto")
             source_url = self._get_inquiry_value(row, "source_url", "url")
+            source_system = self._get_inquiry_value(row, "source_system")
+            extraction_method = self._get_inquiry_value(row, "extraction_method")
+            source_ref = self._get_inquiry_value(row, "source_ref")
+            date_precision = self._get_inquiry_value(row, "date_precision") or "unknown"
             date_start = parse_date(self._get_inquiry_value(row, "date_start", "data_inicio"))
             date_end = parse_date(self._get_inquiry_value(row, "date_end", "data_fim"))
 
@@ -216,6 +240,11 @@ class SenadoCpisPipeline(Pipeline):
                 "date_end": date_end,
                 "source_url": source_url,
                 "source": "senado_cpis",
+                "source_system": source_system,
+                "extraction_method": extraction_method,
+                "source_ref": source_ref,
+                "date_precision": date_precision,
+                "run_id": self.run_id,
             }
             inquiries.append(inquiry)
 
@@ -235,6 +264,13 @@ class SenadoCpisPipeline(Pipeline):
 
         self.inquiries = deduplicate_rows(inquiries, ["inquiry_id"])
         self.cpis = deduplicate_rows(cpis, ["cpi_id"])
+        self._inquiry_date_lookup = {
+            str(row.get("inquiry_id", "")): (
+                str(row.get("date_start", "")).strip(),
+                str(row.get("date_end", "")).strip(),
+            )
+            for row in self.inquiries
+        }
 
     def _transform_members(self) -> None:
         rows: list[dict[str, Any]] = []
@@ -298,6 +334,10 @@ class SenadoCpisPipeline(Pipeline):
             text = self._get_inquiry_value(row, "text", "texto", "ementa")
             status = self._get_inquiry_value(row, "status", "situacao")
             source_url = self._get_inquiry_value(row, "source_url", "url")
+            source_system = self._get_inquiry_value(row, "source_system")
+            extraction_method = self._get_inquiry_value(row, "extraction_method")
+            source_ref = self._get_inquiry_value(row, "source_ref")
+            date_precision = self._get_inquiry_value(row, "date_precision") or "unknown"
             date = parse_date(self._get_inquiry_value(row, "date", "data"))
 
             if not requirement_id:
@@ -311,14 +351,34 @@ class SenadoCpisPipeline(Pipeline):
                 "status": status,
                 "source_url": source_url,
                 "source": "senado_cpis",
+                "source_system": source_system,
+                "extraction_method": extraction_method,
+                "source_ref": source_ref,
+                "date_precision": date_precision,
+                "run_id": self.run_id,
             })
+            start_date, end_date = self._inquiry_date_lookup.get(inquiry_id, ("", ""))
+            temporal_status = _temporal_status(date, start_date, end_date)
 
             inquiry_rels.append({
                 "source_key": inquiry_id,
                 "target_key": requirement_id,
+                "event_date": date,
+                "temporal_status": temporal_status,
+                "temporal_rule": _TEMPORAL_RULE,
             })
+            if temporal_status == "invalid":
+                self.temporal_violations.append({
+                    "violation_id": _stable_id("req", inquiry_id, requirement_id, date),
+                    "edge_type": "TEM_REQUERIMENTO",
+                    "rule": _TEMPORAL_RULE,
+                    "event_date": date,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "source_id": self.source_id,
+                    "run_id": self.run_id,
+                })
 
-            author_name = normalize_name(self._get_inquiry_value(row, "author_name", "autor"))
             author_cpf_raw = self._get_inquiry_value(row, "author_cpf", "cpf_autor")
             author_digits = strip_document(author_cpf_raw)
             if len(author_digits) == 11:
@@ -326,11 +386,8 @@ class SenadoCpisPipeline(Pipeline):
                     "source_key": format_cpf(author_digits),
                     "target_key": requirement_id,
                 })
-            elif author_name:
-                author_name_rels.append({
-                    "person_name": author_name,
-                    "target_key": requirement_id,
-                })
+            # Do not infer factual author->requirement edges from name-only rows.
+            # Name is preserved on InquiryRequirement for exploratory analysis.
 
             explicit_mentioned = self._get_inquiry_value(row, "mentioned_cnpj", "cnpj")
             explicit_digits = strip_document(explicit_mentioned)
@@ -379,6 +436,10 @@ class SenadoCpisPipeline(Pipeline):
             date = parse_date(self._get_inquiry_value(row, "date", "data"))
             topic = self._get_inquiry_value(row, "topic", "assunto")
             source_url = self._get_inquiry_value(row, "source_url", "url")
+            source_system = self._get_inquiry_value(row, "source_system")
+            extraction_method = self._get_inquiry_value(row, "extraction_method")
+            source_ref = self._get_inquiry_value(row, "source_ref")
+            date_precision = self._get_inquiry_value(row, "date_precision") or "unknown"
 
             if not session_id:
                 session_id = _stable_id(inquiry_id, date, topic[:200])
@@ -389,15 +450,60 @@ class SenadoCpisPipeline(Pipeline):
                 "topic": topic,
                 "source_url": source_url,
                 "source": "senado_cpis",
+                "source_system": source_system,
+                "extraction_method": extraction_method,
+                "source_ref": source_ref,
+                "date_precision": date_precision,
+                "run_id": self.run_id,
             })
+            start_date, end_date = self._inquiry_date_lookup.get(inquiry_id, ("", ""))
+            temporal_status = _temporal_status(date, start_date, end_date)
 
             session_rels.append({
                 "source_key": inquiry_id,
                 "target_key": session_id,
+                "event_date": date,
+                "temporal_status": temporal_status,
+                "temporal_rule": _TEMPORAL_RULE,
             })
+            if temporal_status == "invalid":
+                self.temporal_violations.append({
+                    "violation_id": _stable_id("sess", inquiry_id, session_id, date),
+                    "edge_type": "REALIZOU_SESSAO",
+                    "rule": _TEMPORAL_RULE,
+                    "event_date": date,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "source_id": self.source_id,
+                    "run_id": self.run_id,
+                })
 
         self.inquiry_sessions = deduplicate_rows(sessions, ["session_id"])
         self.inquiry_session_rels = session_rels
+
+    def _transform_source_documents(self) -> None:
+        if self._raw_history_sources.empty:
+            return
+
+        documents: list[dict[str, Any]] = []
+        for _, row in self._raw_history_sources.iterrows():
+            url = self._get_inquiry_value(row, "source_url", "url")
+            checksum = self._get_inquiry_value(row, "checksum")
+            if not url:
+                continue
+            doc_id = _stable_id(url, checksum or "", length=24)
+            documents.append({
+                "doc_id": doc_id,
+                "url": url,
+                "checksum": checksum,
+                "published_at": self._get_inquiry_value(row, "period_end"),
+                "retrieved_at": self._get_inquiry_value(row, "retrieved_at_utc"),
+                "content_type": self._get_inquiry_value(row, "doc_type") or "application/pdf",
+                "source_id": self.source_id,
+                "run_id": self.run_id,
+            })
+
+        self.source_documents = deduplicate_rows(documents, ["doc_id"])
 
     def load(self) -> None:
         loader = Neo4jBatchLoader(self.driver)
@@ -450,6 +556,7 @@ class SenadoCpisPipeline(Pipeline):
                 source_key="inquiry_id",
                 target_label="InquiryRequirement",
                 target_key="requirement_id",
+                properties=["event_date", "temporal_status", "temporal_rule"],
             )
 
         if self.inquiry_session_rels:
@@ -460,6 +567,7 @@ class SenadoCpisPipeline(Pipeline):
                 source_key="inquiry_id",
                 target_label="InquirySession",
                 target_key="session_id",
+                properties=["event_date", "temporal_status", "temporal_rule"],
             )
 
         if self.inquiry_member_rels:
@@ -525,3 +633,19 @@ class SenadoCpisPipeline(Pipeline):
                 "m.run_id = row.run_id"
             )
             loader.run_query_with_retry(query, self.requirement_company_mentions)
+
+        if self.temporal_violations:
+            count = loader.load_nodes(
+                "TemporalViolation",
+                deduplicate_rows(self.temporal_violations, ["violation_id"]),
+                key_field="violation_id",
+            )
+            logger.info("[senado_cpis] loaded %d TemporalViolation nodes", count)
+
+        if self.source_documents:
+            count = loader.load_nodes(
+                "SourceDocument",
+                self.source_documents,
+                key_field="doc_id",
+            )
+            logger.info("[senado_cpis] loaded %d SourceDocument nodes", count)
